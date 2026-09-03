@@ -15,8 +15,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error("save-results error:", error);
+
     return NextResponse.json(
-      { success: false, error: "Database insertion failed" },
+      {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Database insertion failed",
+      },
       { status: 500 },
     );
   }
