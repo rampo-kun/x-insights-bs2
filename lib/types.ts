@@ -1,3 +1,9 @@
+export interface UserProfile {
+  name: string;
+  email: string;
+  companyName: string;
+}
+
 export type MsmeType = "Micro" | "Small" | "Medium";
 
 export type Sector =
@@ -97,6 +103,7 @@ export interface AiPrescription {
 }
 
 export interface DiagnosisRequest {
+  profile?: UserProfile;
   answers: Answers;
   score: ScoreResult;
 }

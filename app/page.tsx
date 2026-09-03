@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Stethoscope, ArrowRight } from "lucide-react";
-import { Answers, ScoreResult, AiPrescription } from "@/lib/types";
+import { Answers, ScoreResult, AiPrescription, UserProfile } from "@/lib/types";
 import { computeScore } from "@/lib/scoring";
 import Header from "@/components/Header";
 import IntakeForm from "@/components/IntakeForm";
@@ -14,18 +14,21 @@ type Stage = "intro" | "intake" | "loading" | "results";
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("intro");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [answers, setAnswers] = useState<Answers | null>(null);
   const [score, setScore] = useState<ScoreResult | null>(null);
   const [prescription, setPrescription] = useState<AiPrescription | null>(null);
   const captureRef = useRef<HTMLDivElement>(null);
 
-  async function handleIntakeComplete(finalAnswers: Answers) {
+  async function handleIntakeComplete(finalAnswers: Answers, userProfile: UserProfile) {
     const result = computeScore(finalAnswers);
     setAnswers(finalAnswers);
     setScore(result);
+    setProfile(userProfile);
     setStage("loading");
 
     try {
+      // 1. Fetch AI Prescription
       const res = await fetch("/api/prescribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -33,9 +36,22 @@ export default function Home() {
       });
       const data: AiPrescription = await res.json();
       setPrescription(data);
+
+      // 2. Save all data to MongoDB asynchronously
+      fetch("/api/save-results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile: userProfile,
+          answers: finalAnswers,
+          score: result,
+          prescription: data,
+        }),
+      }).catch((err) => console.error("Database save failed:", err));
+
     } catch (err) {
       console.error("Prescription fetch failed:", err);
-      setPrescription({
+      const fallbackPrescription: AiPrescription = {
         executive_summary:
           "Your diagnostic is complete — here's your business health snapshot.",
         competitor_insight:
@@ -43,13 +59,28 @@ export default function Home() {
         ai_prescription:
           "1) Start logging your core metrics daily. 2) Review them weekly to spot trends early.",
         source: "fallback",
-      });
+      };
+      setPrescription(fallbackPrescription);
+
+      // Attempt to save even if prescription failed (using fallback data)
+      fetch("/api/save-results", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile: userProfile,
+          answers: finalAnswers,
+          score: result,
+          prescription: fallbackPrescription,
+        }),
+      }).catch((dbErr) => console.error("Database save failed:", dbErr));
+
     } finally {
       setStage("results");
     }
   }
 
   function handleRetake() {
+    setProfile(null);
     setAnswers(null);
     setScore(null);
     setPrescription(null);
@@ -123,7 +154,7 @@ export default function Home() {
             </motion.div>
           )}
 
-          {stage === "results" && answers && score && (
+          {stage === "results" && profile && answers && score && (
             <motion.div
               key="results"
               initial={{ opacity: 0 }}
@@ -131,6 +162,7 @@ export default function Home() {
               exit={{ opacity: 0 }}
             >
               <ResultsView
+                profile={profile}
                 answers={answers}
                 score={score}
                 prescription={prescription}

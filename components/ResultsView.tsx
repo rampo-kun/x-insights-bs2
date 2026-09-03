@@ -9,7 +9,7 @@ import {
   Stethoscope,
   ShieldAlert,
 } from "lucide-react";
-import { Answers, ScoreResult, AiPrescription } from "@/lib/types";
+import { Answers, ScoreResult, AiPrescription, UserProfile } from "@/lib/types";
 import { SECTOR_BENCHMARKS } from "@/lib/personas";
 import ScoreGauge from "./ScoreGauge";
 import PillarRadar from "./PillarRadar";
@@ -17,12 +17,14 @@ import PersonaBadge from "./PersonaBadge";
 import DownloadPdfButton from "./DownloadPdfButton";
 
 export default function ResultsView({
+  profile,
   answers,
   score,
   prescription,
   captureRef,
   onRetake,
 }: {
+  profile: UserProfile;
   answers: Answers;
   score: ScoreResult;
   prescription: AiPrescription | null;
@@ -47,7 +49,7 @@ export default function ResultsView({
         }}
       >
         {/* Report header */}
-        <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between border-b border-white/10 pb-4 mb-6 gap-4">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-accent to-accent2 flex items-center justify-center">
               <Stethoscope className="w-4.5 h-4.5 text-ink" />
@@ -61,13 +63,21 @@ export default function ResultsView({
               </p>
             </div>
           </div>
-          <span className="text-[10px] font-mono text-white/30">
-            {new Date().toLocaleDateString("en-IN", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-            })}
-          </span>
+
+          {/* User Profile Information */}
+          <div className="text-left sm:text-right">
+            <p className="text-sm font-semibold text-white">{profile?.companyName}</p>
+            <p className="text-xs text-white/60">
+              {profile?.name} <span className="opacity-50 mx-1">|</span> {profile?.email}
+            </p>
+            <p className="text-[10px] font-mono text-white/30 mt-1">
+              {new Date().toLocaleDateString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
+            </p>
+          </div>
         </div>
 
         {/* Persona hero */}
@@ -172,7 +182,7 @@ export default function ResultsView({
       <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
         <DownloadPdfButton
           targetRef={captureRef}
-          filename={`X-Insights-${archetype.name.replace(/\s+/g, "-")}-Report.pdf`}
+          filename={`X-Insights-${profile?.companyName ? profile.companyName.replace(/\s+/g, "-") + "-" : ""}${archetype.name.replace(/\s+/g, "-")}-Report.pdf`}
         />
         <button
           onClick={onRetake}
