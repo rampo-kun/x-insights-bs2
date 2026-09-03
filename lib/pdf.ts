@@ -39,6 +39,15 @@ export async function exportNodeToPdf(node: HTMLElement, filename: string) {
   const x = (pageWidth - finalWidth) / 2;
   const y = 0;
 
-  pdf.addImage(imgData, "PNG", x, y, finalWidth, finalHeight, undefined, "FAST");
+  pdf.addImage(
+    imgData,
+    "PNG",
+    x,
+    y,
+    finalWidth,
+    finalHeight,
+    undefined,
+    "FAST",
+  );
   pdf.save(filename);
 }

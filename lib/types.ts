@@ -99,7 +99,7 @@ export interface AiPrescription {
   executive_summary: string;
   competitor_insight: string;
   ai_prescription: string;
-  source: "groq" | "fallback";
+  source: "gemini" | "groq" | "fallback";
 }
 
 export interface DiagnosisRequest {

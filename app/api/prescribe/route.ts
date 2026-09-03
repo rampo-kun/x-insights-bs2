@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Answers, ScoreResult, AiPrescription } from "@/lib/types";
 import { SECTOR_BENCHMARKS } from "@/lib/personas";
+import { QUESTIONS } from "@/lib/questions";
 import { generateFallback } from "@/lib/fallback";
 
 export const runtime = "nodejs";
@@ -11,9 +12,26 @@ interface RequestBody {
   score: ScoreResult;
 }
 
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "llama-3.1-8b-instant";
-const TIMEOUT_MS = 8000;
+const GEMINI_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
+const TIMEOUT_MS = 40000;
+
+/**
+ * Resolves question option values (like numeric scores 30, 15, 5)
+ * into their human-readable labels and sublabels for the AI.
+ */
+function resolveAnswerText(key: string, value: any): string {
+  if (value === undefined || value === null) return "Not specified";
+  const question = QUESTIONS.find((q) => q.key === key);
+  if (!question) return String(value);
+
+  const option = question.options.find((opt) => opt.value === value);
+  if (!option) return String(value);
+
+  return option.sublabel
+    ? `${option.label} (${option.sublabel})`
+    : option.label;
+}
 
 function buildSystemPrompt(): string {
   return `You are "AI Business Doctor", a sharp, witty MSME growth strategist speaking at a live event stall.
@@ -22,15 +40,16 @@ The JSON object must match exactly this schema:
 {
   "executive_summary": string,   // 2 punchy sentences validating the user's business persona, using their score/percent
   "competitor_insight": string,  // 1-2 sentences on how top competitors in their sector leverage data, referencing the given industry CAGR
-  "ai_prescription": string      // 2 actionable, highly tactical, numbered steps ("1) ... 2) ...") to fix their stated challenge within 30 days, plus one line tying it to their chosen AI-benefit area
+  "ai_prescription": string      // 2 actionable, highly tactical, numbered steps ("1) ... 2) ...") to fix their stated challenge within 30 days, plus one line tying it to their chosen AI-benefit area (if they selected "Not sure", prescribe the single highest-ROI AI area based on their stated challenge)
 }
-Consider both internal factors (their biggest challenge, and what consumes most of their management time) and external factors (the macro pressure they selected) when writing the executive_summary and competitor_insight — a strong answer acknowledges both what's happening inside the business and outside it.
+Consider both internal factors (their biggest challenge, and what consumes most of their management time) and external factors (the macro pressure they selected) when writing the executive_summary and competitor_insight.
 Tone: confident, energetic, specific — never generic corporate fluff. No hedging language. Keep each field concise (under 65 words).`;
 }
 
 function buildUserPrompt(answers: Answers, score: ScoreResult): string {
   const sector = answers.q2_sector ?? "IT & Services";
-  const benchmark = SECTOR_BENCHMARKS[sector] ?? SECTOR_BENCHMARKS["IT & Services"];
+  const benchmark =
+    SECTOR_BENCHMARKS[sector] ?? SECTOR_BENCHMARKS["IT & Services"];
 
   return JSON.stringify({
     persona: score.archetype.name,
@@ -48,16 +67,24 @@ function buildUserPrompt(answers: Answers, score: ScoreResult): string {
     ai_benefit_area: answers.q10_ai_benefit_area,
     time_consuming_area: answers.q11_time_consuming,
     external_factor: answers.q12_external_factor,
-    sales_tracking_method: answers.q4_sales_tracking,
-    inventory_method: answers.q5_inventory,
-    retention_method: answers.q6_retention,
-    decision_method: answers.q7_data_decisions,
-    ai_adoption_level: answers.q8_ai_adoption,
+    sales_tracking_method: resolveAnswerText(
+      "q4_sales_tracking",
+      answers.q4_sales_tracking,
+    ),
+    inventory_method: resolveAnswerText("q5_inventory", answers.q5_inventory),
+    retention_method: resolveAnswerText("q6_retention", answers.q6_retention),
+    decision_method: resolveAnswerText(
+      "q7_data_decisions",
+      answers.q7_data_decisions,
+    ),
+    ai_adoption_level: resolveAnswerText(
+      "q8_ai_adoption",
+      answers.q8_ai_adoption,
+    ),
   });
 }
 
 function safeParseJson(raw: string): Partial<AiPrescription> | null {
-  // Strip markdown code fences if the model added them despite instructions.
   const cleaned = raw
     .trim()
     .replace(/^```json\s*/i, "")
@@ -66,7 +93,6 @@ function safeParseJson(raw: string): Partial<AiPrescription> | null {
   try {
     return JSON.parse(cleaned);
   } catch {
-    // Attempt to salvage a JSON object substring.
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
     if (start !== -1 && end !== -1 && end > start) {
@@ -80,7 +106,9 @@ function safeParseJson(raw: string): Partial<AiPrescription> | null {
   }
 }
 
-function isValidPrescription(obj: Partial<AiPrescription> | null): obj is Omit<AiPrescription, "source"> {
+function isValidPrescription(
+  obj: Partial<AiPrescription> | null,
+): obj is Omit<AiPrescription, "source"> {
   return (
     !!obj &&
     typeof obj.executive_summary === "string" &&
@@ -97,18 +125,24 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 },
+    );
   }
 
   const { answers, score } = body;
   if (!answers || !score) {
-    return NextResponse.json({ error: "Missing answers or score" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing answers or score" },
+      { status: 400 },
+    );
   }
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
 
-  // No key configured -> deterministic fallback immediately.
   if (!apiKey) {
+    console.warn("⚠️ GEMINI_API_KEY is missing. Serving fallback.");
     return NextResponse.json(generateFallback(answers, score));
   }
 
@@ -116,21 +150,24 @@ export async function POST(req: NextRequest) {
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const res = await fetch(GROQ_URL, {
+    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: GROQ_MODEL,
-        temperature: 0.7,
-        max_tokens: 500,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: buildSystemPrompt() },
-          { role: "user", content: buildUserPrompt(answers, score) },
+        systemInstruction: {
+          parts: [{ text: buildSystemPrompt() }],
+        },
+        contents: [
+          {
+            parts: [{ text: buildUserPrompt(answers, score) }],
+          },
         ],
+        generationConfig: {
+          temperature: 0.7,
+          responseMimeType: "application/json",
+        },
       }),
       signal: controller.signal,
     });
@@ -138,18 +175,22 @@ export async function POST(req: NextRequest) {
     clearTimeout(timeout);
 
     if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`❌ Gemini API Error (${res.status}):`, errorText);
       return NextResponse.json(generateFallback(answers, score));
     }
 
     const data = await res.json();
-    const content: string | undefined = data?.choices?.[0]?.message?.content;
+    const content = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
+      console.error("❌ Gemini returned an empty response.");
       return NextResponse.json(generateFallback(answers, score));
     }
 
     const parsed = safeParseJson(content);
     if (!isValidPrescription(parsed)) {
+      console.error("❌ Gemini response failed schema validation:", content);
       return NextResponse.json(generateFallback(answers, score));
     }
 
@@ -157,11 +198,16 @@ export async function POST(req: NextRequest) {
       executive_summary: parsed.executive_summary!,
       competitor_insight: parsed.competitor_insight!,
       ai_prescription: parsed.ai_prescription!,
-      source: "groq",
+      source: "gemini",
     };
     return NextResponse.json(result);
-  } catch {
+  } catch (error: any) {
     clearTimeout(timeout);
+    if (error.name === "AbortError") {
+      console.error(`⏱️ Gemini API timed out after ${TIMEOUT_MS}ms.`);
+    } else {
+      console.error("💥 Unexpected Error during Gemini fetch:", error);
+    }
     return NextResponse.json(generateFallback(answers, score));
   }
 }

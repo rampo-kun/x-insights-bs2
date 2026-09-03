@@ -110,7 +110,7 @@ export default function Home() {
                   <span className="text-gradient">Business Archetype?</span>
                 </h1>
                 <p className="text-white/50 mt-3 max-w-md mx-auto text-sm sm:text-base">
-                  Answer 6 quick questions. Get a deterministic health score,
+                  Answer 12 quick questions. Get a deterministic health score,
                   a witty persona, and an AI-generated prescription for your
                   #1 bottleneck — in under 60 seconds.
                 </p>
@@ -123,7 +123,7 @@ export default function Home() {
                 <ArrowRight className="w-4 h-4" />
               </button>
               <div className="flex items-center gap-6 text-white/30 text-xs font-mono mt-2">
-                <span>6 QUESTIONS</span>
+                <span>12 QUESTIONS</span>
                 <span>·</span>
                 <span>60 SECONDS</span>
                 <span>·</span>
